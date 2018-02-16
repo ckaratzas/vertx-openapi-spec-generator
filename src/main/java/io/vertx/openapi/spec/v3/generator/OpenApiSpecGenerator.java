@@ -1,5 +1,6 @@
 package io.vertx.openapi.spec.v3.generator;
 
+import io.swagger.v3.oas.annotations.parameters.RequestBody;
 import io.swagger.v3.oas.models.OpenAPI;
 import io.swagger.v3.oas.models.Operation;
 import io.swagger.v3.oas.models.PathItem;
@@ -24,10 +25,10 @@ import java.util.stream.Collectors;
  * OpenApi Operation methods and cross-reference with route information. By no means all OpenApi 3 spec is covered, so this part will be adjusted
  * based on use cases encountered.
  */
-final class OpenApiSpecGenerator {
+public final class OpenApiSpecGenerator {
     private static final Logger log = LoggerFactory.getLogger(OpenApiSpecGenerator.class);
 
-    static OpenAPI generateOpenApiSpecFromRouter(Router router, String title, String version, String serverUrl) {
+    public static OpenAPI generateOpenApiSpecFromRouter(Router router, String title, String version, String serverUrl) {
         log.info("Generating Spec for vertx routes.");
         OpenAPI openAPI = new OpenAPI();
         Info info = new Info();
@@ -71,7 +72,8 @@ final class OpenApiSpecGenerator {
                         Class<?> delegate = handler.getClass().getDeclaredField("arg$1").getType();
                         Arrays.stream(delegate.getDeclaredMethods()).distinct().forEach(method -> {
                             io.swagger.v3.oas.annotations.Operation annotation = method.getAnnotation(io.swagger.v3.oas.annotations.Operation.class);
-                            if (annotation != null) {
+                            VertxPath path = method.getAnnotation(VertxPath.class);
+                            if (annotation != null && path != null && route.getPath().endsWith(path.value())) {
                                 String httpMethod = annotation.method();
                                 PathItem pathItem = paths.get(route.getPath());
                                 Operation matchedOperation = null;
@@ -103,8 +105,13 @@ final class OpenApiSpecGenerator {
                                     default:
                                         break;
                                 }
-                                if (matchedOperation != null)
+                                if (matchedOperation != null) {
                                     AnnotationMappers.decorateOperationFromAnnotation(annotation, matchedOperation);
+                                    RequestBody body = method.getParameters()[0].getAnnotation(RequestBody.class);
+                                    if (body != null) {
+                                        matchedOperation.setRequestBody(AnnotationMappers.fromRequestBody(body));
+                                    }
+                                }
                             }
                         });
                     } catch (NoSuchFieldException e) {
