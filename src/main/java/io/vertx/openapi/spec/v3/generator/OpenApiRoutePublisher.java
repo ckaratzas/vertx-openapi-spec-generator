@@ -18,20 +18,22 @@ public final class OpenApiRoutePublisher {
     private final static Map<String, OpenAPI> generatedSpecs = new HashMap<>();
 
     public synchronized static void publishOpenApiSpec(Router router, String path, String title, String version, String serverUrl) {
-        Optional<OpenAPI> spec = Optional.ofNullable(generatedSpecs.get(path)).or(() -> {
+        Optional<OpenAPI> spec = Optional.empty();
+        if (generatedSpecs.get(path) == null) {
             OpenAPI openAPI = OpenApiSpecGenerator.generateOpenApiSpecFromRouter(router, title, version, serverUrl);
             generatedSpecs.put(path, openAPI);
-            return Optional.of(openAPI);
-        });
+            spec = Optional.of(openAPI);
+        }
         if (spec.isPresent()) {
+            Optional<OpenAPI> finalSpec = spec;
             router.get(path + ".json").handler(routingContext ->
                     routingContext.response()
                             .putHeader("Content-Type", "application/json")
-                            .end(Json.pretty(spec.get())));
+                            .end(Json.pretty(finalSpec.get())));
             router.get(path + ".yaml").handler(routingContext ->
                     routingContext.response()
                             .putHeader("Content-Type", "text/plain")
-                            .end(Yaml.pretty(spec.get())));
+                            .end(Yaml.pretty(finalSpec.get())));
         }
     }
 }
