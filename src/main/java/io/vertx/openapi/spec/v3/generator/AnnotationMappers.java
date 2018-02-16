@@ -1,7 +1,12 @@
 package io.vertx.openapi.spec.v3.generator;
 
+import io.swagger.v3.core.util.AnnotationsUtils;
 import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.parameters.RequestBody;
 import io.swagger.v3.oas.models.headers.Header;
+import io.swagger.v3.oas.models.media.ArraySchema;
+import io.swagger.v3.oas.models.media.Content;
+import io.swagger.v3.oas.models.media.MediaType;
 import io.swagger.v3.oas.models.media.Schema;
 import io.swagger.v3.oas.models.parameters.Parameter;
 import io.swagger.v3.oas.models.responses.ApiResponse;
@@ -12,6 +17,7 @@ import org.slf4j.LoggerFactory;
 
 import java.util.Arrays;
 import java.util.List;
+import java.util.Optional;
 import java.util.stream.Collectors;
 
 /**
@@ -27,16 +33,29 @@ final class AnnotationMappers {
         operation.description(annotation.description());
         operation.operationId(annotation.operationId());
         operation.deprecated(annotation.deprecated());
+
         ApiResponses apiResponses = new ApiResponses();
         apiResponses.putAll(
                 Arrays.stream(annotation.responses()).map(response -> {
                     ApiResponse apiResponse = new ApiResponse();
                     apiResponse.description(response.description());
+                    if (response.content().length > 0) {
+                        Arrays.stream(response.content()).forEach(content -> {
+                            Content c = getContent(content);
+                            if (!Void.class.equals(content.array().schema().implementation()))
+                                c.get(content.mediaType()).getSchema().setExample(clean(content.array().schema().example()));
+                            else if (!Void.class.equals(content.schema().implementation()))
+                                c.get(content.mediaType()).getSchema().setExample(content.schema().example());
+                            apiResponse.content(c);
+                        });
+                    }
                     Arrays.stream(response.headers()).forEach(header -> {
                         Header h = new Header();
                         h.description(header.description());
                         h.deprecated(header.deprecated());
                         h.allowEmptyValue(header.allowEmptyValue());
+                        Optional<Schema> schemaFromAnnotation = AnnotationsUtils.getSchemaFromAnnotation(header.schema());
+                        schemaFromAnnotation.ifPresent(h::schema);
                         h.required(header.required());
                         apiResponse.addHeaderObject(header.name(), h);
                     });
@@ -59,17 +78,26 @@ final class AnnotationMappers {
             }
             p.setRequired(parameter.required());
             p.in(parameter.in().name().toLowerCase());
-
-            Schema schema = new Schema();
-            io.swagger.v3.oas.annotations.media.Schema s = parameter.schema();
-            if (!s.ref().isEmpty()) schema.set$ref(s.ref());
-            schema.setDeprecated(s.deprecated());
-            schema.setDescription(s.description());
-            schema.setName(s.name());
-            schema.setType(s.type());
-            schema.setFormat(s.format());
-            p.schema(schema);
+            Optional<Schema> schemaFromAnnotation = AnnotationsUtils.getSchemaFromAnnotation(parameter.schema());
+            schemaFromAnnotation.ifPresent(p::schema);
         });
+    }
+
+    private static Object clean(final String in) {
+        return in;
+    }
+
+    private static Content getContent(io.swagger.v3.oas.annotations.media.Content content) {
+        Content c = new Content();
+        MediaType mediaType = new MediaType();
+        Optional<Schema> schemaFromAnnotation = AnnotationsUtils.getSchemaFromAnnotation(content.schema());
+        schemaFromAnnotation.ifPresent(mediaType::setSchema);
+        if (!schemaFromAnnotation.isPresent()) {
+            Optional<ArraySchema> arraySchema = AnnotationsUtils.getArraySchema(content.array());
+            arraySchema.ifPresent(mediaType::setSchema);
+        }
+        c.addMediaType(content.mediaType(), mediaType);
+        return c;
     }
 
     private static Parameter findAlreadyProcessedParamFromVertxRoute(final String name, List<Parameter> parameters) {
@@ -78,5 +106,20 @@ final class AnnotationMappers {
                 return parameter;
         }
         return null;
+    }
+
+    static io.swagger.v3.oas.models.parameters.RequestBody fromRequestBody(RequestBody body) {
+        io.swagger.v3.oas.models.parameters.RequestBody rb = new io.swagger.v3.oas.models.parameters.RequestBody();
+        rb.setDescription(body.description());
+        if (body.content().length == 1) {
+            Content c = getContent(body.content()[0]);
+            io.swagger.v3.oas.annotations.media.Content content = body.content()[0];
+            if (!Void.class.equals(content.array().schema().implementation()))
+                c.get(content.mediaType()).getSchema().setExample(clean(content.array().schema().example()));
+            else if (!Void.class.equals(content.schema().implementation()))
+                c.get(content.mediaType()).getSchema().setExample(content.schema().example());
+            rb.setContent(c);
+        }
+        return rb;
     }
 }
